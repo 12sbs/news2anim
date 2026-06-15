@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Output video & state
+output/
+*.mp4
+*.wav
+*.mp3
+
+# Kredensial / rahasia (JANGAN di-commit)
+.env
+credentials/*.json
+!credentials/.gitkeep
+
+# Model TTS (besar)
+models/
+*.onnx
+*.onnx.json
+
+# OS
+.DS_Store
+Thumbs.db

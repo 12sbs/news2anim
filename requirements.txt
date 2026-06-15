@@ -1,0 +1,21 @@
+# ===== Core pipeline =====
+feedparser==6.0.11          # baca RSS berita
+requests==2.32.3            # HTTP (Ollama, dll)
+PyYAML==6.0.2              # baca config.yaml
+beautifulsoup4==4.12.3      # bersihkan HTML artikel
+Pillow==10.4.0             # bikin/olah gambar karakter
+
+# ===== Video =====
+moviepy==2.1.1             # susun & render video (butuh ffmpeg terinstall)
+numpy==1.26.4
+
+# ===== YouTube upload =====
+google-api-python-client==2.137.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+# ===== Catatan binary eksternal (install manual, lihat README) =====
+# - ffmpeg          : wajib (untuk moviepy)
+# - piper-tts       : Text-to-Speech (suara). https://github.com/rhasspy/piper
+# - rhubarb         : lip-sync timing.    https://github.com/DanielSWolf/rhubarb-lip-sync
+# - ollama          : LLM lokal naskah.   https://ollama.com  (opsional, ada fallback)
