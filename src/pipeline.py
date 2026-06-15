@@ -22,23 +22,49 @@ from utils import load_config, log, mark_processed, resolve, slugify
 def build_description(article: dict, scenario: dict) -> str:
     return (
         f"{scenario.get('title', article['title'])}\n\n"
-        f"Sumber: {article.get('source', '')}\n"
+        f"Source: {article.get('source', '')}\n"
         f"{article.get('link', '')}\n"
     )
+
+
+def _video_duration(path: Path) -> float:
+    """Durasi video (detik) via ffprobe."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        return float(out.stdout.strip())
+    except Exception:  # noqa: BLE001
+        return 0.0
 
 
 def process_article(cfg: dict, article: dict, allow_upload: bool) -> Path | None:
     log.info("=== Memproses: %s ===", article["title"][:70])
 
-    # 1) Naskah
+    # 1) Naskah (2 tahap: treatment -> scenes)
     scenario = generate_script(cfg, article)
     if not scenario["scenes"]:
         log.warning("Skenario kosong, lewati.")
         return None
 
-    # 2) Render tiap adegan
     slug = slugify(article["title"])
     workdir = resolve("output") / slug
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    # Simpan naskah untuk ditinjau (treatment + scenes)
+    if cfg["script"].get("save_treatment") and scenario.get("treatment"):
+        (workdir / "treatment.txt").write_text(
+            scenario["treatment"], encoding="utf-8"
+        )
+    import json as _json
+    (workdir / "scenes.json").write_text(
+        _json.dumps(scenario, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 2) Render tiap adegan
     scene_files = []
     for i, scene in enumerate(scenario["scenes"]):
         try:
@@ -53,6 +79,17 @@ def process_article(cfg: dict, article: dict, allow_upload: bool) -> Path | None
     # 3) Gabung
     final = workdir / "final.mp4"
     compose(cfg, scene_files, final)
+
+    # Cek durasi minimal
+    dur = _video_duration(final)
+    min_dur = cfg["video"].get("min_duration_sec", 0)
+    if min_dur and dur < min_dur:
+        log.warning(
+            "Durasi %.1fs < target %ds. Naikkan script.target_words / max_scenes "
+            "atau pakai model Ollama lebih besar.", dur, min_dur
+        )
+    else:
+        log.info("Durasi video: %.1f detik", dur)
 
     # 4) Upload (opsional)
     if allow_upload and cfg["youtube"].get("enabled"):

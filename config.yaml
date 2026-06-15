@@ -3,24 +3,31 @@
 #  Ubah file ini untuk menyesuaikan channel, suara, karakter.
 # ============================================================
 
-# ---- Sumber berita (RSS) ----
+# ---- Sumber berita (RSS) — INTERNASIONAL terpercaya (bahasa Inggris) ----
 news:
-  # Daftar feed RSS. Tambah/ganti sesuai selera.
   feeds:
-    - https://www.antaranews.com/rss/terkini
-    - https://news.detik.com/berita/rss
+    - https://feeds.bbci.co.uk/news/world/rss.xml        # BBC World
+    - https://www.aljazeera.com/xml/rss/all.xml          # Al Jazeera
+    - https://www.theguardian.com/world/rss              # The Guardian World
+    - https://feeds.npr.org/1004/rss.xml                 # NPR World
   max_per_run: 1            # berapa berita diproses tiap kali pipeline jalan
   fetch_fulltext: true      # ambil teks penuh dari halaman artikel (RSS sering pendek)
   min_chars: 200            # lewati artikel terlalu pendek
-  max_chars: 1500           # potong teks panjang agar naskah tidak kepanjangan
+  max_chars: 2500           # potong teks panjang (lebih besar utk naskah 2 menit)
 
 # ---- Pembuat naskah (LLM lokal via Ollama) ----
+# Naskah dibuat 2 TAHAP:
+#   A. treatment  : ringkasan naratif setia fakta (tidak keluar topik)
+#   B. scenes      : treatment dipecah jadi adegan + reka adegan utk video
 script:
-  use_ollama: true          # false = pakai fallback pemecah kalimat sederhana
+  use_ollama: true          # false = fallback sederhana (tanpa dramatisasi)
   ollama_url: http://localhost:11434
-  model: qwen2.5:3b         # model ringan; ganti ke yang kamu punya (mis. llama3.2)
-  max_scenes: 6             # batas jumlah adegan per video
-  language: Indonesian
+  model: llama3.2:3b        # model ringan; ganti sesuai yang kamu punya
+  language: English         # bahasa naskah & suara (target internasional)
+  max_scenes: 14            # batas adegan (lebih banyak utk video >= 2 menit)
+  target_words: 380         # target kata naskah (~2.5 menit narasi)
+  allow_reenactment: true   # boleh reka adegan kejadian yg DISEBUTKAN berita
+  save_treatment: true      # simpan treatment.txt utk ditinjau
 
 # ---- Suara (Piper TTS) ----
 tts:
@@ -28,9 +35,11 @@ tts:
   # Unduh model suara Indonesia dari:
   # https://huggingface.co/rhasspy/piper-voices/tree/main/id/id_ID
   voices:
-    Host:   models/id_ID-news_tts-medium.onnx
-    Narator: models/id_ID-news_tts-medium.onnx
-    default: models/id_ID-news_tts-medium.onnx
+    Anchor:  models/en_US-lessac-medium.onnx
+    Host:    models/en_US-lessac-medium.onnx
+    Narrator: models/en_US-lessac-medium.onnx
+    Reporter: models/en_US-lessac-medium.onnx
+    default: models/en_US-lessac-medium.onnx
   speed: 1.0
 
 # ---- Lip-sync (Rhubarb) ----
@@ -55,6 +64,7 @@ video:
   width: 1280
   height: 720
   fps: 24
+  min_duration_sec: 120     # target durasi minimal video (2 menit)
   background_default: assets/backgrounds/studio.png
   subtitle: true
   subtitle_font: ""        # kosong = auto-deteksi font sistem (DejaVuSans dll)
@@ -73,9 +83,9 @@ youtube:
   token: credentials/token.json
   privacy: private          # private | unlisted | public
   category_id: "25"        # 25 = News & Politics
-  tags: [berita, animasi, news, indonesia]
+  tags: [world news, international news, animated news, breaking news, explainer]
   title_prefix: ""
-  description_footer: "\n\nVideo animasi otomatis. Sumber berita tercantum di atas."
+  description_footer: "\n\nAnimated news explainer. Source credited above. For educational purposes."
 
 # ---- Otomatisasi ----
 automation:
