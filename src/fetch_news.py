@@ -22,6 +22,30 @@ def _entry_id(entry) -> str:
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
 
 
+def fetch_fulltext(url: str, timeout: int = 15) -> str:
+    """Unduh halaman artikel dan ambil isi paragraf utama.
+
+    RSS biasanya hanya memberi ringkasan pendek, jadi kita ambil teks penuh
+    dari halaman aslinya. Heuristik sederhana: kumpulkan semua <p>.
+    """
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (news2anim bot)"}
+        r = requests.get(url, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        # buang elemen non-konten
+        for tag in soup(["script", "style", "nav", "footer", "aside", "form"]):
+            tag.decompose()
+        paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+        # ambil paragraf yang cukup panjang (hindari menu/caption)
+        paragraphs = [p for p in paragraphs if len(p) > 40]
+        text = " ".join(paragraphs)
+        return re.sub(r"\s+", " ", text).strip()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Gagal ambil teks penuh %s: %s", url, e)
+        return ""
+
+
 def fetch_articles(cfg: dict) -> list[dict]:
     """Kembalikan daftar artikel BARU (belum pernah diproses).
 
@@ -53,9 +77,18 @@ def fetch_articles(cfg: dict) -> list[dict]:
             if entry.get("content"):
                 summary = _clean_html(entry["content"][0].get("value", "")) or summary
 
+            # RSS sering pendek -> coba ambil teks penuh dari halaman artikel
+            link = entry.get("link", "")
+            if len(summary) < min_chars and link and cfg["news"].get("fetch_fulltext", True):
+                full = fetch_fulltext(link)
+                if len(full) > len(summary):
+                    summary = full
+
             if len(summary) < min_chars:
                 log.info("Lewati (terlalu pendek): %s", title[:50])
                 continue
+            # batasi panjang agar naskah tidak kepanjangan
+            summary = summary[: cfg["news"].get("max_chars", 1500)]
 
             found.append(
                 {
