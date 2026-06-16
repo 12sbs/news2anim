@@ -65,6 +65,15 @@ video:
   height: 720
   fps: 24
   min_duration_sec: 120     # target durasi minimal video (2 menit)
+  # --- variasi visual (retensi) ---
+  ken_burns: true           # zoom pelan pada latar agar terasa hidup
+  ken_burns_zoom: 0.08      # seberapa besar zoom (0.08 = 8%)
+  broll_scenes: true        # adegan reenactment jadi b-roll (tanpa karakter)
+  headline_banner: true     # banner headline di adegan anchor
+  banner_color: "#c8281e"   # warna banner (merah breaking-news)
+  # PERINGATAN: foto artikel = HAK CIPTA media sumber -> risiko strike YouTube.
+  # Default false (pakai background bertema yang aman). Aktifkan hanya bila paham risiko.
+  use_article_image: false
   background_default: assets/backgrounds/studio.png
   subtitle: true
   subtitle_font: ""        # kosong = auto-deteksi font sistem (DejaVuSans dll)

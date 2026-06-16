@@ -23,6 +23,28 @@ from upload import upload_video
 from utils import load_config, log, mark_processed, resolve, slugify
 
 
+def _download_broll(article: dict, workdir: Path) -> None:
+    """Unduh foto artikel sebagai b-roll (workdir/broll.<ext>)."""
+    url = article.get("image_url")
+    if not url:
+        return
+    try:
+        import requests
+        headers = {"User-Agent": "Mozilla/5.0 (news2anim bot)"}
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        ext = ".jpg"
+        ct = r.headers.get("Content-Type", "")
+        if "png" in ct:
+            ext = ".png"
+        elif "webp" in ct:
+            ext = ".webp"
+        (workdir / f"broll{ext}").write_bytes(r.content)
+        log.info("Foto artikel diunduh untuk b-roll.")
+    except Exception as e:  # noqa: BLE001
+        log.warning("Gagal unduh foto artikel: %s", e)
+
+
 def _video_duration(path: Path) -> float:
     """Durasi video (detik) via ffprobe."""
     import subprocess
@@ -67,11 +89,16 @@ def process_article(cfg: dict, article: dict, allow_upload: bool) -> Path | None
         _json.dumps(scenario, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # 2) Render tiap adegan
+    # 2) Unduh foto artikel (b-roll) bila ada & diizinkan
+    if cfg["video"].get("use_article_image", True):
+        _download_broll(article, workdir)
+
+    # 3) Render tiap adegan (kirim headline utk banner)
+    headline = scenario.get("title", article["title"])
     scene_files = []
     for i, scene in enumerate(scenario["scenes"]):
         try:
-            scene_files.append(render_scene(cfg, scene, i, workdir))
+            scene_files.append(render_scene(cfg, scene, i, workdir, headline=headline))
         except Exception as e:  # noqa: BLE001
             log.error("Adegan %d gagal: %s", i, e)
 

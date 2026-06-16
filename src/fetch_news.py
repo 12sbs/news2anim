@@ -22,28 +22,50 @@ def _entry_id(entry) -> str:
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
 
 
-def fetch_fulltext(url: str, timeout: int = 15) -> str:
-    """Unduh halaman artikel dan ambil isi paragraf utama.
+def fetch_page(url: str, timeout: int = 15) -> dict:
+    """Unduh halaman artikel: kembalikan {text, image}.
 
-    RSS biasanya hanya memberi ringkasan pendek, jadi kita ambil teks penuh
-    dari halaman aslinya. Heuristik sederhana: kumpulkan semua <p>.
+    - text : gabungan paragraf utama (RSS sering pendek -> ambil teks penuh).
+    - image: URL gambar utama (og:image) untuk dipakai sebagai b-roll.
     """
+    result = {"text": "", "image": ""}
     try:
         headers = {"User-Agent": "Mozilla/5.0 (news2anim bot)"}
         r = requests.get(url, headers=headers, timeout=timeout)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
-        # buang elemen non-konten
+        # og:image (gambar utama artikel)
+        og = soup.find("meta", property="og:image") or soup.find(
+            "meta", attrs={"name": "twitter:image"}
+        )
+        if og and og.get("content"):
+            result["image"] = og["content"].strip()
+        # teks
         for tag in soup(["script", "style", "nav", "footer", "aside", "form"]):
             tag.decompose()
         paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
-        # ambil paragraf yang cukup panjang (hindari menu/caption)
         paragraphs = [p for p in paragraphs if len(p) > 40]
-        text = " ".join(paragraphs)
-        return re.sub(r"\s+", " ", text).strip()
+        result["text"] = re.sub(r"\s+", " ", " ".join(paragraphs)).strip()
     except Exception as e:  # noqa: BLE001
-        log.warning("Gagal ambil teks penuh %s: %s", url, e)
-        return ""
+        log.warning("Gagal ambil halaman %s: %s", url, e)
+    return result
+
+
+def fetch_fulltext(url: str, timeout: int = 15) -> str:
+    """Kompatibilitas: hanya teks penuh."""
+    return fetch_page(url, timeout)["text"]
+
+
+def _entry_image(entry) -> str:
+    """Ambil gambar dari entri RSS (media:thumbnail/content/enclosure)."""
+    for key in ("media_thumbnail", "media_content"):
+        media = entry.get(key)
+        if media and isinstance(media, list) and media[0].get("url"):
+            return media[0]["url"]
+    for link in entry.get("links", []):
+        if link.get("type", "").startswith("image") and link.get("href"):
+            return link["href"]
+    return ""
 
 
 def fetch_articles(cfg: dict) -> list[dict]:
@@ -77,12 +99,16 @@ def fetch_articles(cfg: dict) -> list[dict]:
             if entry.get("content"):
                 summary = _clean_html(entry["content"][0].get("value", "")) or summary
 
-            # RSS sering pendek -> coba ambil teks penuh dari halaman artikel
+            image_url = _entry_image(entry)
+
+            # RSS sering pendek -> ambil teks penuh (+ og:image) dari halaman
             link = entry.get("link", "")
             if len(summary) < min_chars and link and cfg["news"].get("fetch_fulltext", True):
-                full = fetch_fulltext(link)
-                if len(full) > len(summary):
-                    summary = full
+                page = fetch_page(link)
+                if len(page["text"]) > len(summary):
+                    summary = page["text"]
+                if not image_url and page["image"]:
+                    image_url = page["image"]
 
             if len(summary) < min_chars:
                 log.info("Lewati (terlalu pendek): %s", title[:50])
@@ -97,6 +123,7 @@ def fetch_articles(cfg: dict) -> list[dict]:
                     "summary": summary,
                     "link": entry.get("link", ""),
                     "source": parsed.feed.get("title", feed_url),
+                    "image_url": image_url,
                 }
             )
             if len(found) >= limit:

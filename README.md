@@ -79,8 +79,9 @@ lalu sesuaikan `tts.voices` di `config.yaml`.
 ## 🚀 Coba cepat (dengan karakter dummy)
 
 ```bash
-# 1. Buat aset dummy (karakter + background)
+# 1. Buat aset dummy (karakter) + background bertema
 python assets/make_dummy_assets.py
+python assets/make_backgrounds.py     # studio, city, war, flood, protest, economy, ...
 
 # 2. Uji render satu adegan (butuh Piper + model suara)
 python src/render.py
@@ -152,6 +153,22 @@ Setiap berita yang sudah dibuat videonya disimpan "signature"-nya (kata kunci + 
 Berita baru dibandingkan; bila kemiripan ≥ `dedup.similarity_threshold` (default 0.5) —
 **meski dari portal berbeda dan kata berbeda** — dianggap sama dan **tidak dibuat ulang**.
 Naikkan threshold bila terlalu agresif, turunkan bila ada duplikat yang lolos.
+
+## 🎞️ Variasi visual (retensi)
+
+Agar tidak monoton (penonton cepat kabur), tiap video mengombinasikan:
+- **Adegan anchor**: karakter pembawa berita + **banner headline** (gaya breaking news).
+- **Adegan b-roll**: pemandangan bertema layar-penuh **tanpa karakter** + voice-over
+  (adegan `reenactment`).
+- **Ken Burns**: zoom pelan pada semua latar agar terasa hidup.
+- **Background bertema**: dipilih otomatis dari isi berita (war, protest, flood,
+  economy, court, city, election, map, ...). Tambah/ganti file di `assets/backgrounds/`.
+
+Atur di `config.yaml` → `video`: `ken_burns`, `broll_scenes`, `headline_banner`,
+`use_article_image`.
+
+> **Foto artikel sebagai b-roll** (`use_article_image`) default **false** —
+> foto milik media sumber = risiko hak cipta/strike. Aktifkan hanya bila kamu paham risikonya.
 
 ## 🔎 SEO YouTube
 
