@@ -87,7 +87,13 @@ youtube:
   title_prefix: ""
   description_footer: "\n\nAnimated news explainer. Source credited above. For educational purposes."
 
+# ---- Anti-duplikasi lintas-sumber ----
+dedup:
+  similarity_threshold: 0.5   # 0..1; >= ini dianggap berita sama (jangan dibuat ulang)
+                              # naikkan (mis. 0.6) jika terlalu agresif, turunkan jika lolos
+
 # ---- Otomatisasi ----
 automation:
-  state_file: output/state.json   # menyimpan id berita yang sudah diproses
+  state_file: output/state.json   # menyimpan signature berita yang sudah diproses
+  poll_interval_sec: 600          # mode --watch: cek feed tiap 10 menit
   keep_output_days: 7

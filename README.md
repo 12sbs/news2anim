@@ -1,14 +1,28 @@
 # news2anim 🎬📰
 
-Ubah **berita** menjadi **video animasi karakter 2D** secara **otomatis**, lalu **upload ke YouTube**.
+Ubah **berita internasional** menjadi **video animasi karakter 2D** (bahasa Inggris)
+secara **otomatis**, lengkap dengan **judul + deskripsi SEO**, lalu **upload ke YouTube** —
+dengan **anti-duplikasi lintas-sumber** dan **mode pantau otomatis**.
 
-Pipeline: `RSS berita → naskah (LLM) → suara (TTS) → lip-sync → render karakter → gabung video → upload YouTube`.
+Pipeline: `RSS → cek duplikat → naskah 2 tahap (LLM) → suara (TTS) → lip-sync → render →
+gabung video → metadata SEO → upload YouTube`.
 
 Semua komponen **gratis & bisa jalan lokal** (tanpa GPU). Karakter dianimasikan dengan teknik
 **mouth-swap** (badan + bentuk mulut diganti mengikuti suara) — fully otomatis seperti Live2D sederhana.
 
-> ✅ Sudah teruji menghasilkan video. Karakter dummy disediakan agar bisa langsung dicoba —
-> tinggal ganti dengan karaktermu sendiri.
+> ✅ Sudah teruji menghasilkan video ≥2 menit dari berita BBC asli, naskah setia fakta.
+> Karakter dummy disediakan agar bisa langsung dicoba — tinggal ganti dengan karaktermu.
+
+## ✨ Fitur
+
+- 📰 **Berita internasional terpercaya** (BBC, Al Jazeera, Guardian, NPR) via RSS + ambil teks penuh.
+- ✍️ **Naskah 2 tahap**: *treatment* (naratif setia fakta, anti keluar topik) → *scenes* (adegan).
+- 🎭 **Reka adegan (reenactment)** dari kejadian yang disebut berita, untuk video lebih panjang (≥2 menit).
+- 🗣️ **Suara English** (Piper) + **lip-sync** (Rhubarb/fallback).
+- 🔁 **Anti-duplikasi LINTAS-SUMBER**: berita sama dari portal berbeda tidak dibuat ulang.
+- 🔎 **Judul & deskripsi SEO** + tags otomatis (LLM).
+- 📺 **Upload YouTube otomatis**.
+- 👀 **Mode watch**: pantau feed terus-menerus, proses berita baru begitu terbit.
 
 ---
 
@@ -71,11 +85,16 @@ python assets/make_dummy_assets.py
 # 2. Uji render satu adegan (butuh Piper + model suara)
 python src/render.py
 
-# 3. Jalankan pipeline penuh (tanpa upload)
+# 3. Jalankan sekali (tanpa upload)
 python src/pipeline.py --no-upload
+
+# 4. Mode pantau otomatis (cek berita baru terus-menerus)
+python src/pipeline.py --watch
 ```
 
-Hasil video ada di `output/<judul-berita>/final.mp4`.
+Hasil tiap berita ada di `output/<judul>/`:
+`treatment.txt` (naskah), `scenes.json` (adegan), `metadata.json` (judul/deskripsi/tags SEO),
+`final.mp4` (video).
 
 ---
 
@@ -115,12 +134,30 @@ Background: taruh `assets/backgrounds/<keyword>.png`. `keyword` dicocokkan denga
 
 ---
 
-## ⏰ Jalankan otomatis (terjadwal)
+## ⏰ Jalankan otomatis
 
-Contoh cron (tiap 3 jam):
+**Pilihan A — Mode watch** (proses sendiri selama berjalan):
+```bash
+python src/pipeline.py --watch        # cek feed tiap automation.poll_interval_sec
+```
+
+**Pilihan B — Cron** (tiap 3 jam, sekali jalan per pemicu):
 ```bash
 0 */3 * * * cd /path/news2anim && /path/.venv/bin/python src/pipeline.py >> output/cron.log 2>&1
 ```
+
+## 🔁 Anti-duplikasi lintas-sumber
+
+Setiap berita yang sudah dibuat videonya disimpan "signature"-nya (kata kunci + entitas).
+Berita baru dibandingkan; bila kemiripan ≥ `dedup.similarity_threshold` (default 0.5) —
+**meski dari portal berbeda dan kata berbeda** — dianggap sama dan **tidak dibuat ulang**.
+Naikkan threshold bila terlalu agresif, turunkan bila ada duplikat yang lolos.
+
+## 🔎 SEO YouTube
+
+`metadata.json` tiap video berisi `title` (≤90 char, ber-keyword), `description`
+(ringkasan + hashtag + kredit sumber), dan `tags`. Dibuat LLM dari fakta artikel
+(tanpa clickbait mengada-ada).
 
 ---
 
@@ -142,14 +179,16 @@ news2anim/
 │   ├── characters/host/     # body.png + mouth_*.png
 │   └── backgrounds/         # studio.png, dst
 ├── src/
-│   ├── fetch_news.py        # 1. ambil berita RSS
-│   ├── script_gen.py        # 2. berita → skenario JSON (Ollama/fallback)
-│   ├── tts.py               # 3. teks → suara (Piper)
-│   ├── lipsync.py           # 4. suara → timing mulut (Rhubarb/fallback)
-│   ├── render.py            # 5. render adegan (body + mulut + subtitle)
-│   ├── compose.py           # 6. gabung adegan + musik
-│   ├── upload.py            # 7. upload YouTube
-│   ├── pipeline.py          # orkestrator 1→7
+│   ├── fetch_news.py        # 1. ambil berita RSS + teks penuh
+│   ├── dedup.py             # 2. anti-duplikasi lintas-sumber
+│   ├── script_gen.py        # 3. naskah 2 tahap (treatment → scenes)
+│   ├── tts.py               # 4. teks → suara (Piper)
+│   ├── lipsync.py           # 5. suara → timing mulut (Rhubarb/fallback)
+│   ├── render.py            # 6. render adegan (body + mulut + subtitle)
+│   ├── compose.py           # 7. gabung adegan + musik
+│   ├── seo.py               # 8. judul/deskripsi/tags SEO
+│   ├── upload.py            # 9. upload YouTube
+│   ├── pipeline.py          # orkestrator (+ mode --watch)
 │   └── utils.py             # config, state, helper
 ├── credentials/             # client_secret.json, token.json (tidak di-commit)
 └── output/                  # hasil video (tidak di-commit)

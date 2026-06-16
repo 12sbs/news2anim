@@ -11,20 +11,16 @@ import argparse
 import sys
 from pathlib import Path
 
+import time
+
 from compose import compose
+from dedup import is_duplicate, record_story
 from fetch_news import fetch_articles
 from render import render_scene
 from script_gen import generate_script
+from seo import generate_metadata
 from upload import upload_video
 from utils import load_config, log, mark_processed, resolve, slugify
-
-
-def build_description(article: dict, scenario: dict) -> str:
-    return (
-        f"{scenario.get('title', article['title'])}\n\n"
-        f"Source: {article.get('source', '')}\n"
-        f"{article.get('link', '')}\n"
-    )
 
 
 def _video_duration(path: Path) -> float:
@@ -43,6 +39,13 @@ def _video_duration(path: Path) -> float:
 
 def process_article(cfg: dict, article: dict, allow_upload: bool) -> Path | None:
     log.info("=== Memproses: %s ===", article["title"][:70])
+
+    # 0) Anti-duplikasi LINTAS-SUMBER: berita sama (sumber beda) -> jangan buat ulang
+    dup, matched, score = is_duplicate(cfg, article)
+    if dup:
+        log.info("DUPLIKAT (skor %.2f) dari: %s -> dilewati.", score, matched[:60])
+        mark_processed(cfg, article["id"])
+        return None
 
     # 1) Naskah (2 tahap: treatment -> scenes)
     scenario = generate_script(cfg, article)
@@ -91,47 +94,73 @@ def process_article(cfg: dict, article: dict, allow_upload: bool) -> Path | None
     else:
         log.info("Durasi video: %.1f detik", dur)
 
-    # 4) Upload (opsional)
+    # 4) Metadata SEO (judul + deskripsi + tags)
+    meta = generate_metadata(cfg, article, scenario)
+    (workdir / "metadata.json").write_text(
+        _json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # 5) Upload (opsional)
     if allow_upload and cfg["youtube"].get("enabled"):
         try:
             upload_video(
-                cfg,
-                final,
-                title=scenario.get("title", article["title"]),
-                description=build_description(article, scenario),
-                tags=cfg["youtube"].get("tags"),
+                cfg, final,
+                title=meta["title"],
+                description=meta["description"],
+                tags=meta["tags"],
             )
         except Exception as e:  # noqa: BLE001
             log.error("Upload gagal: %s", e)
 
-    # 5) Tandai sudah diproses
-    mark_processed(cfg, article["id"])
+    # 6) Catat signature berita (untuk anti-duplikasi lintas-sumber)
+    record_story(cfg, article)
     log.info("=== Selesai: %s ===", final)
     return final
+
+
+def run_once(cfg: dict, allow_upload: bool) -> int:
+    """Satu siklus: ambil berita baru -> proses. Kembalikan jumlah video dibuat."""
+    articles = fetch_articles(cfg)
+    if not articles:
+        log.info("Tidak ada berita baru.")
+        return 0
+    made = 0
+    for article in articles:
+        try:
+            if process_article(cfg, article, allow_upload):
+                made += 1
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.error("Gagal memproses artikel: %s", e)
+    return made
 
 
 def main():
     ap = argparse.ArgumentParser(description="news2anim pipeline")
     ap.add_argument("--config", default=None)
     ap.add_argument("--no-upload", action="store_true")
+    ap.add_argument("--watch", action="store_true",
+                    help="pantau feed terus-menerus, proses berita baru otomatis")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     allow_upload = not args.no_upload
 
-    articles = fetch_articles(cfg)
-    if not articles:
-        log.info("Tidak ada berita baru.")
+    if not args.watch:
+        run_once(cfg, allow_upload)
         return
 
-    for article in articles:
-        try:
-            process_article(cfg, article, allow_upload)
-        except KeyboardInterrupt:
-            log.info("Dihentikan pengguna.")
-            sys.exit(1)
-        except Exception as e:  # noqa: BLE001
-            log.error("Gagal memproses artikel: %s", e)
+    interval = cfg["automation"].get("poll_interval_sec", 600)
+    log.info("Mode WATCH aktif. Cek feed tiap %d detik. Ctrl+C untuk berhenti.", interval)
+    try:
+        while True:
+            made = run_once(cfg, allow_upload)
+            log.info("Siklus selesai (%d video). Tidur %d detik...", made, interval)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        log.info("Mode watch dihentikan.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
