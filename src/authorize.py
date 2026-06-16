@@ -14,13 +14,19 @@ Setelah token.json ada, set youtube.enabled: true di config.yaml.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 
 from utils import load_config, log, resolve
 
+# longgarkan pengecekan scope (Google kadang menambah openid)
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 # scope upload = cukup untuk mengunggah video
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 REDIRECT = "http://localhost:8080/"
+TMP = "credentials/.oauth_tmp.json"
 
 
 def _check_secret(client_secret):
@@ -54,37 +60,61 @@ def browser_flow(client_secret, token_path):
     _save(creds, token_path)
 
 
-def manual_flow(client_secret, token_path):
-    """Untuk server TANPA browser (Codespaces/VPS): salin-tempel kode."""
+def manual_flow(client_secret, token_path, code_arg: str | None):
+    """Server TANPA browser (Codespaces/VPS): DUA langkah via argumen --code.
+
+    Langkah 1 (tanpa --code): cetak URL otorisasi + simpan code_verifier.
+    Langkah 2 (dengan --code): tukar kode -> token.json.
+    """
     from urllib.parse import parse_qs, urlparse
 
     from google_auth_oauthlib.flow import Flow
 
+    tmp_path = resolve(TMP)
+
+    # ---------- Langkah 1: cetak URL ----------
+    if not code_arg:
+        flow = Flow.from_client_secrets_file(
+            str(client_secret), scopes=SCOPES, redirect_uri=REDIRECT
+        )
+        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path.write_text(
+            json.dumps({"code_verifier": flow.code_verifier}), encoding="utf-8"
+        )
+        print("\n" + "=" * 70)
+        print("LANGKAH 1: buka URL ini di browser, login, IZINKAN:\n")
+        print(auth_url)
+        print("\nLANGKAH 2: browser dialihkan ke http://localhost:8080/?code=...")
+        print("(halaman GAGAL dibuka itu NORMAL). Salin URL lengkap dari address")
+        print("bar, lalu jalankan lagi perintah ini dengan --code:\n")
+        print('  python src/authorize.py --manual --code "<TEMPEL_URL_DI_SINI>"')
+        print("=" * 70)
+        return
+
+    # ---------- Langkah 2: tukar kode ----------
+    code_verifier = None
+    if tmp_path.exists():
+        code_verifier = json.loads(tmp_path.read_text()).get("code_verifier")
     flow = Flow.from_client_secrets_file(
         str(client_secret), scopes=SCOPES, redirect_uri=REDIRECT
     )
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-    print("\n" + "=" * 70)
-    print("1) Buka URL ini di browser (HP/laptop), login, lalu IZINKAN:\n")
-    print(auth_url)
-    print("\n2) Browser akan dialihkan ke http://localhost:8080/?code=...")
-    print("   Halaman GAGAL DIBUKA itu NORMAL. Salin URL lengkap dari address bar")
-    print("   (atau hanya bagian code-nya), lalu tempel di bawah.")
-    print("=" * 70)
-    pasted = input("\nTempel URL/kode di sini: ").strip()
-
-    code = pasted
-    if "code=" in pasted:
-        q = parse_qs(urlparse(pasted).query)
-        code = q.get("code", [pasted])[0]
+    flow.code_verifier = code_verifier
+    code = code_arg
+    if "code=" in code_arg:
+        code = parse_qs(urlparse(code_arg).query).get("code", [code_arg])[0]
     flow.fetch_token(code=code)
     _save(flow.credentials, token_path)
+    if tmp_path.exists():
+        tmp_path.unlink()
 
 
 def main():
     ap = argparse.ArgumentParser(description="Otorisasi YouTube -> token.json")
     ap.add_argument("--manual", action="store_true",
                     help="mode tanpa browser (Codespaces/VPS): salin-tempel kode")
+    ap.add_argument("--code", default=None,
+                    help="(langkah 2) URL/kode hasil otorisasi untuk ditukar token")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -95,8 +125,8 @@ def main():
     if not _check_secret(client_secret):
         sys.exit(1)
     try:
-        if args.manual:
-            manual_flow(client_secret, token_path)
+        if args.manual or args.code:
+            manual_flow(client_secret, token_path, args.code)
         else:
             browser_flow(client_secret, token_path)
     except ImportError:
