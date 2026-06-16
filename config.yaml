@@ -87,10 +87,10 @@ video:
 
 # ---- YouTube ----
 youtube:
-  enabled: false            # set true bila siap upload otomatis
+  enabled: false            # set true SETELAH credentials/token.json ada (jalankan authorize.py)
   client_secret: credentials/client_secret.json
   token: credentials/token.json
-  privacy: private          # private | unlisted | public
+  privacy: unlisted         # MULAI unlisted (aman) -> review dulu -> baru public
   category_id: "25"        # 25 = News & Politics
   tags: [world news, international news, animated news, breaking news, explainer]
   title_prefix: ""

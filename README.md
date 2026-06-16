@@ -125,13 +125,22 @@ Background: taruh `assets/backgrounds/<keyword>.png`. `keyword` dicocokkan denga
 
 1. Buka [Google Cloud Console](https://console.cloud.google.com) → buat project.
 2. Aktifkan **YouTube Data API v3**.
-3. Buat **OAuth Client ID** tipe **Desktop app** → unduh JSON → simpan sebagai
+3. **OAuth consent screen**: pilih External, isi nama app, tambahkan email kamu
+   sebagai **Test user** (selama app belum dipublish).
+4. Buat **OAuth Client ID** tipe **Desktop app** → unduh JSON → simpan sebagai
    `credentials/client_secret.json`.
-4. Set di `config.yaml`: `youtube.enabled: true` dan `youtube.privacy` (private/unlisted/public).
-5. Pertama kali jalan, browser akan minta login Google → token tersimpan di
-   `credentials/token.json` (otomatis selanjutnya).
+5. **Otorisasi sekali** (di komputer yang punya browser):
+   ```bash
+   python src/authorize.py        # browser terbuka → login → token.json dibuat
+   ```
+6. Set `youtube.enabled: true` di `config.yaml`. `privacy` default **unlisted**
+   (aman) — review dulu, baru ubah ke `public`.
 
-> ⚠️ Folder `credentials/` & `output/` di-ignore git (lihat `.gitignore`). Jangan commit rahasia.
+> 🖥️ **Headless / Codespaces / server tanpa browser:** jalankan `authorize.py`
+> di **laptop** lebih dulu, lalu **salin `credentials/token.json`** ke server.
+> Token otomatis di-refresh selanjutnya (tidak perlu login ulang).
+
+> ⚠️ Folder `credentials/` & `output/` di-ignore git. **Jangan commit** rahasia.
 
 ---
 
