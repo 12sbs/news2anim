@@ -24,8 +24,8 @@ script:
   ollama_url: http://localhost:11434
   model: llama3.2:3b        # model ringan; ganti sesuai yang kamu punya
   language: English         # bahasa naskah & suara (target internasional)
-  max_scenes: 14            # batas adegan (lebih banyak utk video >= 2 menit)
-  target_words: 380         # target kata naskah (~2.5 menit narasi)
+  max_scenes: 16            # batas adegan (lebih banyak utk video >= 2 menit)
+  target_words: 480         # target kata naskah (~2.5 menit narasi)
   allow_reenactment: true   # boleh reka adegan kejadian yg DISEBUTKAN berita
   save_treatment: true      # simpan treatment.txt utk ditinjau
 
