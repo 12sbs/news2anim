@@ -90,7 +90,7 @@ youtube:
   enabled: true             # token.json sudah ada -> upload aktif
   client_secret: credentials/client_secret.json
   token: credentials/token.json
-  privacy: unlisted         # MULAI unlisted (aman) -> review dulu -> baru public
+  privacy: public           # upload langsung PUBLIC (atas permintaan pengguna)
   category_id: "25"        # 25 = News & Politics
   tags: [world news, international news, animated news, breaking news, explainer]
   title_prefix: ""
