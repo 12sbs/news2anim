@@ -87,7 +87,7 @@ video:
 
 # ---- YouTube ----
 youtube:
-  enabled: false            # set true SETELAH credentials/token.json ada (jalankan authorize.py)
+  enabled: true             # token.json sudah ada -> upload aktif
   client_secret: credentials/client_secret.json
   token: credentials/token.json
   privacy: unlisted         # MULAI unlisted (aman) -> review dulu -> baru public
