@@ -70,18 +70,20 @@ def manual_flow(client_secret, token_path, code_arg: str | None):
 
     from google_auth_oauthlib.flow import Flow
 
-    tmp_path = resolve(TMP)
+    def _new_flow():
+        f = Flow.from_client_secrets_file(
+            str(client_secret), scopes=SCOPES, redirect_uri=REDIRECT
+        )
+        # Matikan PKCE -> penukaran kode tidak butuh code_verifier yg cocok,
+        # jadi alur 2-langkah tidak rewel meski dijalankan terpisah.
+        f.autogenerate_code_verifier = False
+        f.code_verifier = None
+        return f
 
     # ---------- Langkah 1: cetak URL ----------
     if not code_arg:
-        flow = Flow.from_client_secrets_file(
-            str(client_secret), scopes=SCOPES, redirect_uri=REDIRECT
-        )
+        flow = _new_flow()
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-        tmp_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path.write_text(
-            json.dumps({"code_verifier": flow.code_verifier}), encoding="utf-8"
-        )
         print("\n" + "=" * 70)
         print("LANGKAH 1: buka URL ini di browser, login, IZINKAN:\n")
         print(auth_url)
@@ -93,20 +95,12 @@ def manual_flow(client_secret, token_path, code_arg: str | None):
         return
 
     # ---------- Langkah 2: tukar kode ----------
-    code_verifier = None
-    if tmp_path.exists():
-        code_verifier = json.loads(tmp_path.read_text()).get("code_verifier")
-    flow = Flow.from_client_secrets_file(
-        str(client_secret), scopes=SCOPES, redirect_uri=REDIRECT
-    )
-    flow.code_verifier = code_verifier
+    flow = _new_flow()
     code = code_arg
     if "code=" in code_arg:
         code = parse_qs(urlparse(code_arg).query).get("code", [code_arg])[0]
     flow.fetch_token(code=code)
     _save(flow.credentials, token_path)
-    if tmp_path.exists():
-        tmp_path.unlink()
 
 
 def main():
