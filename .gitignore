@@ -7,13 +7,17 @@ env/
 
 # Output video & state
 output/
+output
 *.mp4
 *.wav
 *.mp3
 
-# Kredensial / rahasia (JANGAN di-commit)
+# Log runtime (bukan bagian kode)
+*.log
+
+# Kredensial / rahasia (JANGAN di-commit) — termasuk SEMUA sub-folder/backup
 .env
-credentials/*.json
+credentials/*
 !credentials/.gitkeep
 
 # Model TTS (besar)

@@ -9,11 +9,21 @@ news:
     - https://feeds.bbci.co.uk/news/world/rss.xml        # BBC World
     - https://www.aljazeera.com/xml/rss/all.xml          # Al Jazeera
     - https://www.theguardian.com/world/rss              # The Guardian World
-    - https://feeds.npr.org/1004/rss.xml                 # NPR World
-  max_per_run: 1            # berapa berita diproses tiap kali pipeline jalan
+    - https://rss.nytimes.com/services/xml/rss/nyt/World.xml  # New York Times World
+    - https://rss.dw.com/rdf/rss-en-world                # Deutsche Welle (penyiar publik Jerman)
+    - https://www.france24.com/en/rss                    # France 24 (penyiar publik Prancis)
+    - https://www.pbs.org/newshour/feeds/rss/world       # PBS NewsHour (penyiar publik AS)
+    - https://www.cbsnews.com/latest/rss/world           # CBS News World
+    - https://www.abc.net.au/news/feed/51120/rss.xml     # ABC Australia (penyiar publik Australia)
+    - https://www.cbc.ca/webfeed/rss/rss-world           # CBC World (penyiar publik Kanada)
+    - https://feeds.skynews.com/feeds/rss/world.xml      # Sky News World (Inggris)
+    - https://abcnews.go.com/abcnews/internationalheadlines  # ABC News (AS)
+    - https://www.latimes.com/world/rss2.0.xml           # LA Times World (AS)
+  max_per_run: 60           # ambil banyak kandidat tiap siklus utk clustering peristiwa (14 feed)
   fetch_fulltext: true      # ambil teks penuh dari halaman artikel (RSS sering pendek)
   min_chars: 200            # lewati artikel terlalu pendek
-  max_chars: 2500           # potong teks panjang (lebih besar utk naskah 2 menit)
+  max_chars: 3500           # teks per-artikel lebih kaya sebelum digabung
+  merge_max_chars: 6000     # batas body GABUNGAN multi-sumber yg diumpan ke LLM
 
 # ---- Pembuat naskah (LLM lokal via Ollama) ----
 # Naskah dibuat 2 TAHAP:
@@ -22,12 +32,15 @@ news:
 script:
   use_ollama: true          # false = fallback sederhana (tanpa dramatisasi)
   ollama_url: http://localhost:11434
-  model: llama3.2:3b        # model ringan; ganti sesuai yang kamu punya
+  model: qwen2.5:3b         # aman utk RAM ~8GB; naikkan ke qwen2.5:7b bila ada RAM/GPU
   language: English         # bahasa naskah & suara (target internasional)
-  max_scenes: 16            # batas adegan (lebih banyak utk video >= 2 menit)
-  target_words: 480         # target kata naskah (~2.5 menit narasi)
+  long_form: true           # naskah panjang berstruktur (5-10 menit)
+  max_scenes: 24            # batas adegan (lebih banyak utk video 5-10 menit)
+  target_words: 1200        # target kata naskah (~8 menit narasi @ ~150 wpm)
+  min_treatment_words: 900  # di bawah ini -> ekspansi 1x (tanpa fakta baru)
   allow_reenactment: true   # boleh reka adegan kejadian yg DISEBUTKAN berita
   save_treatment: true      # simpan treatment.txt utk ditinjau
+  use_llm_scenes: false     # long-form: pakai splitter deterministik (faithful, tanpa kehilangan fakta)
 
 # ---- Suara (Piper TTS) ----
 tts:
@@ -58,16 +71,28 @@ character:
   # offset mulut relatif terhadap titik kiri-atas body (pixel pada gambar asli)
   mouth_offset_x: 0
   mouth_offset_y: 0
+  # variasi karakter antar-video (baju/dasi berbeda). Isi nama subfolder di
+  # assets/characters/ (mis. [host, host_formal, host_casual]). Kosong = auto-
+  # deteksi semua folder ber-body.png; bila tetap kosong pakai 'dir' di atas.
+  variants: []
 
 # ---- Video ----
 video:
   width: 1280
   height: 720
   fps: 24
-  min_duration_sec: 120     # target durasi minimal video (2 menit)
+  min_duration_sec: 120     # target durasi minimal video (2 menit; lebih panjang lebih baik)
   # --- variasi visual (retensi) ---
-  ken_burns: true           # zoom pelan pada latar agar terasa hidup
+  ken_burns: true           # zoom pelan pada latar (fallback bila camera_zoom=false)
   ken_burns_zoom: 0.08      # seberapa besar zoom (0.08 = 8%)
+  # --- zoom kamera dinamis (punch-in pada background + karakter) ---
+  camera_zoom: true         # true = zoom seluruh adegan (bg+karakter), arah in/out diacak
+  camera_zoom_min: 0.06     # punch-in minimum (6%)
+  camera_zoom_max: 0.14     # punch-in maksimum (14%)
+  # --- animasi background (overlay partikel/cahaya bergerak) ---
+  bg_overlay: true
+  bg_overlay_file: assets/overlays/particles.png   # kosong/tak ada = dilewati
+  bg_overlay_opacity: 0.35
   broll_scenes: true        # adegan reenactment jadi b-roll (tanpa karakter)
   headline_banner: true     # banner headline di adegan anchor
   banner_color: "#c8281e"   # warna banner (merah breaking-news)
@@ -84,25 +109,115 @@ video:
   music_volume: 0.12
   intro: ""                       # path video intro opsional, mis. assets/intro/intro.mp4
   outro: ""
+  logo: assets/logo.png           # logo channel overlay (kosongkan utk mematikan)
+  logo_scale: 0.10                # tinggi logo relatif tinggi video
+  logo_opacity: 0.85              # transparansi logo (0..1)
+  logo_margin: 24                 # jarak logo dari tepi (pixel)
+
+# ---- Gambar AI untuk b-roll (adegan reenactment) ----
+# Adegan reenactment memakai gambar yang dibuat AI (sesuai isi naskah) agar
+# tidak monoton. Gagal/dimatikan -> jatuh ke background bertema (aman).
+ai_image:
+  enabled: true
+  provider: pollinations      # gratis, tanpa API key
+  model: flux                 # model Pollinations (flux | turbo)
+  # gaya visual ditempel ke prompt tiap adegan
+  style: "cinematic news b-roll, photorealistic, dramatic lighting, high detail, 16:9"
+  refine_prompt: true         # pakai Ollama untuk meringkas teks adegan -> prompt visual
+  timeout_sec: 60
+  retries: 2                  # percobaan unduh per gambar
+
+# ---- QA berlapis (mutu sebelum upload) ----
+# Tiap gerbang bisa memerintahkan tahap sebelumnya mengulang. Bila tak
+# terselamatkan -> upload DILEWATI & ditulis REVIEW_NEEDED.txt (bukan crash).
+qa:
+  enabled: true
+  use_judge: true             # Gerbang A: juri LLM menilai naskah (butuh Ollama)
+  max_script_retries: 2       # Gerbang A: ulang naskah maks sekian kali
+  max_scene_retries: 2        # Gerbang B: render ulang 1 adegan maks sekian kali
+  min_script_words: 300       # Gerbang A: naskah < ini -> gagal (min ~2 menit @150 wpm)
+  max_script_words: 2200      # Gerbang A: naskah > ini -> gagal (cegah model ngelantur)
+  min_scenes: 4               # Gerbang A: adegan < ini -> gagal (min ~2 menit)
+  judge_max_chars: 6000       # Gerbang A: juri menilai seluruh naskah panjang, bukan pembuka saja
+  publish_on_warnings: true   # 24/7: tetap publish meski ada warning lunak (Gerbang B/C/D)
+  clip_dur_tolerance: 0.7     # Gerbang B: |durasi klip - durasi audio| maks (detik)
+  min_clip_bytes: 20000       # Gerbang B: file klip < ini -> gagal
+  blank_luma_min: 12          # Gerbang B: rata-rata kecerahan frame < ini -> gelap
+  blank_std_min: 3            # Gerbang B: deviasi kecerahan < ini -> blank/polos
+  recompose_if_short: true    # Gerbang C: recompose 1x bila durasi < min_duration_sec
+  # Gerbang B: moderasi visual AI. Kosong = MATI. Isi nama model vision Ollama
+  # (mis. "llava") untuk memeriksa frame b-roll. Butuh model besar (~4GB).
+  vision_model: ""
+  # Gerbang A & D: kata terlarang -> disensor dari metadata & memicu fix_script
+  banned_words:
+    - kill yourself
+    - how to make a bomb
+    - child abuse
+  # Gerbang A: frasa pelanggaran kebijakan di NASKAH -> picu fix_script/REVIEW
+  policy_terms:
+    - graphic beheading
+    - bomb-making instructions
+    - how to kill
+    - step-by-step attack
 
 # ---- YouTube ----
 youtube:
   enabled: true             # token.json sudah ada -> upload aktif
   client_secret: credentials/client_secret.json
   token: credentials/token.json
-  privacy: public           # upload langsung PUBLIC (atas permintaan pengguna)
+  privacy: public           # mode produksi 24/7: publish publik otomatis
+  thumbnail: true           # pasang thumbnail kustom (butuh re-auth scope 'youtube' sekali)
   category_id: "25"        # 25 = News & Politics
   tags: [world news, international news, animated news, breaking news, explainer]
   title_prefix: ""
   description_footer: "\n\nAnimated news explainer. Source credited above. For educational purposes."
 
-# ---- Anti-duplikasi lintas-sumber ----
+# ---- Clustering peristiwa (gabung banyak sumber jadi 1 video) ----
+cluster:
+  similarity_threshold: 0.55  # ambang menyatukan artikel se-peristiwa dalam 1 siklus
+                              # lebih tinggi = lebih ketat (kurangi salah-gabung)
+
+# ---- Kebijakan publikasi (kualitas > kuantitas) ----
+publish:
+  max_videos_per_cycle: 2     # batas video per siklus; sisanya dipertimbangkan siklus berikut
+  min_sources_for_publish: 2  # minimal sumber agar dipublikasikan (verifikasi multi-sumber)
+  allow_single_source: false  # true = boleh buat video dari 1 sumber saja
+
+# ---- Thumbnail otomatis ----
+thumbnail:
+  source: ai                  # 'ai' (gambar AI) | 'frame' (frame dari video)
+  width: 1280
+  height: 720
+  headline_max_chars: 60      # panjang maks judul di thumbnail
+  font: ""                    # kosong = auto-deteksi font tebal sistem
+  logo: assets/logo.png       # logo channel di thumbnail (kosongkan utk mematikan)
+
+# ---- Anti-duplikasi lintas-sumber/lintas-siklus ----
 dedup:
-  similarity_threshold: 0.5   # 0..1; >= ini dianggap berita sama (jangan dibuat ulang)
+  similarity_threshold: 0.5   # 0..1; >= ini dianggap peristiwa SUDAH dibuat (jangan ulang)
                               # naikkan (mis. 0.6) jika terlalu agresif, turunkan jika lolos
 
 # ---- Otomatisasi ----
 automation:
   state_file: output/state.json   # menyimpan signature berita yang sudah diproses
-  poll_interval_sec: 600          # mode --watch: cek feed tiap 10 menit
-  keep_output_days: 7
+  poll_interval_sec: 300          # mode --watch: cek feed tiap 5 menit (jeda antar-siklus; render tetap berjalan penuh dulu)
+  keep_output_days: 7             # retensi: hapus folder video lebih tua dari ini
+  min_free_mb: 900                # emergency: bila ruang bebas < ini, hapus video tertua
+  keep_min_videos: 5              # selalu sisakan minimal sekian video terbaru
+
+# ---- Notifikasi Telegram (pemantauan: bukti sistem hidup) ----
+# Aktif HANYA bila enabled:true DAN bot_token+chat_id terisi (kalau kosong -> diam,
+# tidak mengganggu pipeline). Kredensial bisa juga lewat env TELEGRAM_BOT_TOKEN /
+# TELEGRAM_CHAT_ID (menang atas config). Onboarding: isi bot_token, kirim /start ke
+# bot, lalu `.venv/bin/python src/notify.py --getid` untuk dapat chat_id.
+notify:
+  telegram:
+    enabled: true
+    bot_token: "8801291620:AAFR66Pt35-s-kXJeAsEi6D68bfXaz5w0IM"        # dari @BotFather
+    chat_id: "2059489552"          # id chat tujuan (angka)
+  on_search: true            # kirim ringkasan TIAP siklus pencarian berita (~5 mnt sekali)
+  on_upload: true            # kirim notifikasi tiap video terupload / gagal upload
+  search_skip_if_empty: false  # false = tetap kirim walau tak ada peristiwa baru (heartbeat)
+  on_event_start: true       # kirim notif saat sebuah peristiwa MULAI digarap jadi video
+  on_progress: true          # kirim notif tiap tahap besar (naskah siap, render selesai, mulai upload)
+  on_fail: true              # kirim notif saat peristiwa GAGAL di tengah (naskah/render/QA/crash), bukan cuma upload

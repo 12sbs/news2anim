@@ -21,7 +21,9 @@ Semua komponen **gratis & bisa jalan lokal** (tanpa GPU). Karakter dianimasikan 
 - 🗣️ **Suara English** (Piper) + **lip-sync** (Rhubarb/fallback).
 - 🔁 **Anti-duplikasi LINTAS-SUMBER**: berita sama dari portal berbeda tidak dibuat ulang.
 - 🔎 **Judul & deskripsi SEO** + tags otomatis (LLM).
-- 📺 **Upload YouTube otomatis**.
+- 🖼️ **Gambar AI b-roll** (Pollinations/Flux, gratis tanpa API key) untuk adegan reenactment.
+- 🛡️ **QA berlapis** (4 gerbang): naskah, klip, durasi, metadata — gagal total → tunda upload, bukan crash.
+- 📺 **Upload YouTube otomatis** (hanya bila lolos semua QA).
 - 👀 **Mode watch**: pantau feed terus-menerus, proses berita baru begitu terbit.
 
 ---
@@ -176,8 +178,36 @@ Agar tidak monoton (penonton cepat kabur), tiap video mengombinasikan:
 Atur di `config.yaml` → `video`: `ken_burns`, `broll_scenes`, `headline_banner`,
 `use_article_image`.
 
+**Logo channel** ditempel di pojok video (`video.logo`, default `assets/logo.png`).
+Buat logo contoh dengan `python assets/make_logo.py`, atau ganti dengan logomu
+(PNG transparan). Kosongkan `video.logo` untuk mematikan.
+
 > **Foto artikel sebagai b-roll** (`use_article_image`) default **false** —
 > foto milik media sumber = risiko hak cipta/strike. Aktifkan hanya bila kamu paham risikonya.
+
+## 🛡️ QA berlapis (mutu sebelum upload)
+
+Pipeline punya empat gerbang mutu yang bisa **memerintahkan tahap sebelumnya mengulang**.
+Bila tak terselamatkan → **upload dilewati** dan ditulis `REVIEW_NEEDED.txt` (berisi alasan),
+video tetap ada untuk ditinjau manual. **Tidak pernah crash** — selalu pilih jalur aman.
+
+| Gerbang | Cek | Bila gagal |
+|---|---|---|
+| **A — Naskah** | min kata/adegan + **kata terlarang/`policy_terms`** + juri LLM (setia fakta, on-topic) | **`fix_script`** memperbaiki naskah s/d `max_script_retries`, tetap gagal → `REVIEW_NEEDED.txt`, hentikan artikel |
+| **B — Klip** | ukuran file, durasi cocok audio, **stream audio+video ada**, frame tidak gelap/blank, **moderasi visual AI** (opsional, `qa.vision_model`) | render ulang s/d `max_scene_retries` → eskalasi (sederhanakan teks) → drop adegan |
+| **C — Final** | durasi ≥ `video.min_duration_sec` + **stream audio+video ada** | recompose 1×, masih pendek → tandai review |
+| **D — Metadata** | kata terlarang (`qa.banned_words`) | sensor otomatis judul/deskripsi/tag |
+
+> **Degradasi anggun:** semua cek berbasis LLM/ffmpeg **dilewati** (dianggap lolos)
+> bila alatnya mati — QA menahan video hanya karena masalah mutu nyata, bukan karena
+> Ollama/ffmpeg kebetulan tidak ada. Atur di `config.yaml` → `qa` (set `qa.enabled: false` untuk mematikan).
+
+## 🖼️ Gambar AI untuk b-roll
+
+Adegan **reenactment** memakai gambar yang dibuat AI sesuai isi naskah
+(provider **Pollinations/Flux**, gratis, tanpa API key) agar tidak monoton.
+Gagal/dimatikan → otomatis jatuh ke **background bertema** dari `assets/backgrounds/`.
+Atur di `config.yaml` → `ai_image` (`enabled`, `model`, `style`).
 
 ## 🔎 SEO YouTube
 
@@ -214,8 +244,11 @@ news2anim/
 │   ├── compose.py           # 7. gabung adegan + musik
 │   ├── seo.py               # 8. judul/deskripsi/tags SEO
 │   ├── upload.py            # 9. upload YouTube
-│   ├── pipeline.py          # orkestrator (+ mode --watch)
+│   ├── ai_image.py          # gambar AI b-roll (Pollinations/Flux)
+│   ├── validate.py          # QA berlapis (gerbang A/B/C/D)
+│   ├── pipeline.py          # orkestrator (+ mode --watch + QA)
 │   └── utils.py             # config, state, helper
+├── deploy/                  # setup.sh, news2anim.service, watchdog.sh
 ├── credentials/             # client_secret.json, token.json (tidak di-commit)
 └── output/                  # hasil video (tidak di-commit)
 ```

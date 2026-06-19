@@ -1,0 +1,162 @@
+# ============================================================
+#  KONFIGURASI news2anim — MODE TES / DRY-RUN
+#  Ringan & cepat. TIDAK upload. State terpisah dari produksi.
+# ============================================================
+
+# ---- Sumber berita (RSS) ----
+news:
+  feeds:
+    - https://feeds.bbci.co.uk/news/world/rss.xml
+    - https://www.aljazeera.com/xml/rss/all.xml
+    - https://www.theguardian.com/world/rss
+    - https://feeds.npr.org/1004/rss.xml
+  max_per_run: 12           # cukup utk membentuk cluster, tetap cepat
+  fetch_fulltext: true
+  min_chars: 200
+  max_chars: 3000
+  merge_max_chars: 4000
+
+# ---- Pembuat naskah (LLM lokal via Ollama) ----
+script:
+  use_ollama: true
+  ollama_url: http://localhost:11434
+  model: qwen2.5:0.5b       # model kecil utk tes cepat
+  language: English
+  long_form: true
+  max_scenes: 8
+  target_words: 400         # kecil agar tes cepat
+  min_treatment_words: 0    # 0 = lewati ekspansi (hemat waktu tes)
+  allow_reenactment: true
+  save_treatment: true
+  use_llm_scenes: false     # splitter deterministik
+
+# ---- Suara (Piper TTS) ----
+tts:
+  piper_bin: piper
+  voices:
+    Anchor:  models/en_US-lessac-medium.onnx
+    Host:    models/en_US-lessac-medium.onnx
+    Narrator: models/en_US-lessac-medium.onnx
+    Reporter: models/en_US-lessac-medium.onnx
+    default: models/en_US-lessac-medium.onnx
+  speed: 1.0
+
+# ---- Lip-sync (Rhubarb) ----
+lipsync:
+  rhubarb_bin: rhubarb
+  recognizer: pocketSphinx
+
+# ---- Karakter ----
+character:
+  name: host
+  dir: assets/characters/host
+  pos_x: 0.5
+  pos_y: 0.62
+  scale: 0.85
+  mouth_offset_x: 0
+  mouth_offset_y: 0
+
+# ---- Video ----
+video:
+  width: 1280
+  height: 720
+  fps: 24
+  min_duration_sec: 60      # target tes lebih rendah
+  ken_burns: true
+  ken_burns_zoom: 0.08
+  broll_scenes: true
+  headline_banner: true
+  banner_color: "#c8281e"
+  use_article_image: false
+  background_default: assets/backgrounds/studio.png
+  subtitle: true
+  subtitle_font: ""
+  subtitle_fontsize: 40
+  subtitle_color: white
+  subtitle_stroke: black
+  music: assets/music/bg.mp3
+  music_volume: 0.12
+  intro: ""
+  outro: ""
+  logo: assets/logo.png
+  logo_scale: 0.10
+  logo_opacity: 0.85
+  logo_margin: 24
+
+# ---- Gambar AI untuk b-roll ----
+ai_image:
+  enabled: true
+  provider: pollinations
+  model: flux
+  style: "cinematic news b-roll, photorealistic, dramatic lighting, high detail, 16:9"
+  refine_prompt: false        # tes: lewati refine (hemat panggilan LLM)
+  timeout_sec: 60
+  retries: 1
+
+# ---- QA berlapis ----
+qa:
+  enabled: true
+  use_judge: false            # tes: matikan juri LLM agar cepat
+  max_script_retries: 1
+  max_scene_retries: 1
+  min_script_words: 80        # rendah agar tes lolos
+  max_script_words: 6000
+  min_scenes: 3
+  judge_max_chars: 4000
+  publish_on_warnings: true
+  clip_dur_tolerance: 0.7
+  min_clip_bytes: 20000
+  blank_luma_min: 12
+  blank_std_min: 3
+  recompose_if_short: true
+  vision_model: ""
+  banned_words:
+    - kill yourself
+    - how to make a bomb
+    - child abuse
+  policy_terms:
+    - graphic beheading
+    - bomb-making instructions
+    - how to kill
+    - step-by-step attack
+
+# ---- Clustering peristiwa ----
+cluster:
+  similarity_threshold: 0.5
+
+# ---- Kebijakan publikasi (tes: longgar agar pasti menghasilkan video) ----
+publish:
+  max_videos_per_cycle: 1
+  min_sources_for_publish: 1
+  allow_single_source: true
+
+# ---- Thumbnail otomatis (tes: pakai frame, tanpa jaringan) ----
+thumbnail:
+  source: frame
+  width: 1280
+  height: 720
+  headline_max_chars: 60
+  font: ""
+  logo: assets/logo.png
+
+# ---- YouTube (TES: TIDAK upload) ----
+youtube:
+  enabled: false            # dry-run: jangan upload
+  client_secret: credentials/client_secret.json
+  token: credentials/token.json
+  privacy: private
+  thumbnail: true           # tetap buat thumbnail utk diuji (tidak di-set tanpa upload)
+  category_id: "25"
+  tags: [world news, international news, animated news, breaking news, explainer]
+  title_prefix: ""
+  description_footer: "\n\nAnimated news explainer. Source credited above. For educational purposes."
+
+# ---- Anti-duplikasi ----
+dedup:
+  similarity_threshold: 0.5
+
+# ---- Otomatisasi (state TERPISAH dari produksi) ----
+automation:
+  state_file: output/state.test.json
+  poll_interval_sec: 600
+  keep_output_days: 7

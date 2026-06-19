@@ -86,8 +86,18 @@ def generate_metadata(cfg: dict, article: dict, scenario: dict) -> dict:
     yt = cfg["youtube"]
     meta["title"] = (yt.get("title_prefix", "") + str(meta["title"]).strip())[:100]
     desc = str(meta.get("description", "")).strip()
-    # selalu sertakan kredit sumber
-    src = f"\n\nSource: {article.get('source','')}\n{article.get('link','')}"
+    # selalu sertakan kredit sumber (enumerasi bila multi-sumber)
+    sources = article.get("sources") or []
+    if sources:
+        # Nama sumber TETAP dicantumkan penuh (etika atribusi). Hanya pemisah
+        # kategori feed '>' diganti '-' agar terbaca natural & lolos validasi YouTube.
+        lines = "\n".join(
+            f"- {str(s.get('name','')).replace('>', '-')}: {s.get('link','')}".rstrip(": ")
+            for s in sources
+        )
+        src = f"\n\nSources:\n{lines}"
+    else:
+        src = f"\n\nSource: {article.get('source','')}\n{article.get('link','')}"
     meta["description"] = (desc + src + yt.get("description_footer", ""))[:4900]
     tags = meta.get("tags") or yt.get("tags", [])
     # gabung dgn tag default, unik, batasi

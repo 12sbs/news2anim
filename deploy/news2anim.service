@@ -1,0 +1,17 @@
+[Unit]
+StartLimitIntervalSec=0
+Description=news2anim — auto news-to-animation pipeline (watch mode)
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+Environment=PATH=__VENV__/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=__VENV__/bin/python src/pipeline.py --watch
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

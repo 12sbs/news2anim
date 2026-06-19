@@ -6,6 +6,8 @@ from pathlib import Path
 from moviepy import (
     AudioFileClip,
     CompositeAudioClip,
+    CompositeVideoClip,
+    ImageClip,
     VideoFileClip,
     concatenate_videoclips,
 )
@@ -50,6 +52,31 @@ def compose(cfg: dict, scene_files: list[Path], out_path: Path) -> Path:
             final = final.with_audio(mixed)
         except Exception as e:  # noqa: BLE001
             log.warning("Musik latar dilewati (%s).", e)
+
+    # Logo channel overlay (pojok kanan-atas) bila ada
+    logo = vid.get("logo")
+    if logo and resolve(logo).exists():
+        try:
+            from PIL import Image
+
+            W, H = vid["width"], vid["height"]
+            with Image.open(resolve(logo)) as im:
+                lw, lh = im.size
+            target_h = max(1, int(H * vid.get("logo_scale", 0.10)))
+            ratio = target_h / lh
+            target_w = max(1, int(lw * ratio))
+            margin = int(vid.get("logo_margin", 24))
+            logo_clip = (
+                ImageClip(str(resolve(logo)))
+                .resized((target_w, target_h))
+                .with_duration(final.duration)
+                .with_opacity(float(vid.get("logo_opacity", 0.85)))
+                .with_position((W - target_w - margin, margin))
+            )
+            audio = final.audio
+            final = CompositeVideoClip([final, logo_clip], size=(W, H)).with_audio(audio)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Logo overlay dilewati (%s).", e)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

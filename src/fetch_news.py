@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 
 import feedparser
@@ -20,6 +21,20 @@ def _clean_html(html: str) -> str:
 def _entry_id(entry) -> str:
     raw = entry.get("id") or entry.get("link") or entry.get("title", "")
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _fetch_feed(feed_url: str, timeout: int = 15):
+    """Ambil & parse RSS feed DENGAN timeout.
+
+    feedparser.parse(url) melakukan fetch HTTP-nya sendiri TANPA timeout, jadi
+    server yang menggantung (mis. CDN yang menerima koneksi tapi tak mengirim
+    data) bisa membekukan SELURUH pipeline tanpa batas. Kita unduh via requests
+    (punya timeout) lalu parse byte-nya. Bonus: User-Agent kustom mengurangi 403.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (news2anim bot)"}
+    r = requests.get(feed_url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return feedparser.parse(r.content)
 
 
 def fetch_page(url: str, timeout: int = 15) -> dict:
@@ -68,67 +83,86 @@ def _entry_image(entry) -> str:
     return ""
 
 
-def fetch_articles(cfg: dict) -> list[dict]:
-    """Kembalikan daftar artikel BARU (belum pernah diproses).
+def _build_article(cfg: dict, entry, source_name: str) -> dict | None:
+    """Bangun satu artikel dari entri RSS (atau None bila tak layak/duplikat)."""
+    nid = _entry_id(entry)
+    if is_processed(cfg, nid):
+        return None
 
-    Tiap artikel: {id, title, summary, link, source}
+    min_chars = cfg["news"]["min_chars"]
+    title = entry.get("title", "").strip()
+    summary = _clean_html(entry.get("summary") or entry.get("description") or "")
+    if entry.get("content"):
+        summary = _clean_html(entry["content"][0].get("value", "")) or summary
+
+    image_url = _entry_image(entry)
+    link = entry.get("link", "")
+
+    # RSS sering pendek -> ambil teks penuh (+ og:image) dari halaman
+    if len(summary) < min_chars and link and cfg["news"].get("fetch_fulltext", True):
+        page = fetch_page(link)
+        if len(page["text"]) > len(summary):
+            summary = page["text"]
+        if not image_url and page["image"]:
+            image_url = page["image"]
+
+    if len(summary) < min_chars:
+        log.info("Lewati (terlalu pendek): %s", title[:50])
+        return None
+
+    summary = summary[: cfg["news"].get("max_chars", 1500)]
+    return {
+        "id": nid,
+        "title": title,
+        "summary": summary,
+        "link": link,
+        "source": source_name,
+        "image_url": image_url,
+    }
+
+
+def fetch_articles(cfg: dict) -> list[dict]:
+    """Kembalikan daftar artikel BARU lintas-feed (ROUND-ROBIN demi keberagaman sumber).
+
+    Round-robin penting: agar peristiwa sama dari BBC + Al Jazeera + Guardian
+    sama-sama terambil dan bisa di-cluster (bukan menguras 1 feed saja).
+    Tiap artikel: {id, title, summary, link, source, image_url}
     """
     feeds = cfg["news"]["feeds"]
-    min_chars = cfg["news"]["min_chars"]
     limit = cfg["news"]["max_per_run"]
+    # batasi per-feed agar fetch fulltext tidak meledak, tetap beri buffer keberagaman
+    per_feed_cap = max(1, math.ceil(limit / max(1, len(feeds)))) + 3
 
-    found: list[dict] = []
+    per_feed: list[list[dict]] = []
     for feed_url in feeds:
         log.info("Membaca feed: %s", feed_url)
         try:
-            parsed = feedparser.parse(feed_url)
+            parsed = _fetch_feed(feed_url)
         except Exception as e:  # noqa: BLE001
             log.warning("Gagal baca feed %s: %s", feed_url, e)
             continue
-
+        source_name = parsed.feed.get("title", feed_url)
+        bucket: list[dict] = []
         for entry in parsed.entries:
-            nid = _entry_id(entry)
-            if is_processed(cfg, nid):
-                continue
+            art = _build_article(cfg, entry, source_name)
+            if art:
+                bucket.append(art)
+            if len(bucket) >= per_feed_cap:
+                break
+        per_feed.append(bucket)
 
-            title = entry.get("title", "").strip()
-            summary = _clean_html(
-                entry.get("summary") or entry.get("description") or ""
-            )
-            # Coba ambil isi lebih lengkap jika ada content:encoded
-            if entry.get("content"):
-                summary = _clean_html(entry["content"][0].get("value", "")) or summary
+    # gabung round-robin sampai mencapai limit
+    found: list[dict] = []
+    idx = 0
+    while len(found) < limit and any(idx < len(b) for b in per_feed):
+        for b in per_feed:
+            if idx < len(b):
+                found.append(b[idx])
+                if len(found) >= limit:
+                    break
+        idx += 1
 
-            image_url = _entry_image(entry)
-
-            # RSS sering pendek -> ambil teks penuh (+ og:image) dari halaman
-            link = entry.get("link", "")
-            if len(summary) < min_chars and link and cfg["news"].get("fetch_fulltext", True):
-                page = fetch_page(link)
-                if len(page["text"]) > len(summary):
-                    summary = page["text"]
-                if not image_url and page["image"]:
-                    image_url = page["image"]
-
-            if len(summary) < min_chars:
-                log.info("Lewati (terlalu pendek): %s", title[:50])
-                continue
-            # batasi panjang agar naskah tidak kepanjangan
-            summary = summary[: cfg["news"].get("max_chars", 1500)]
-
-            found.append(
-                {
-                    "id": nid,
-                    "title": title,
-                    "summary": summary,
-                    "link": entry.get("link", ""),
-                    "source": parsed.feed.get("title", feed_url),
-                    "image_url": image_url,
-                }
-            )
-            if len(found) >= limit:
-                return found
-
+    log.info("Total artikel baru terambil: %d (dari %d feed)", len(found), len(per_feed))
     return found
 
 

@@ -23,8 +23,11 @@ from utils import load_config, log, resolve
 # longgarkan pengecekan scope (Google kadang menambah openid)
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
-# scope upload = cukup untuk mengunggah video
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# youtube.upload = unggah video; youtube = pasang thumbnail kustom
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube",
+]
 REDIRECT = "http://localhost:8080/"
 TMP = "credentials/.oauth_tmp.json"
 
