@@ -17,18 +17,22 @@ import requests
 
 from utils import log
 
-# kata visual generik agar prompt fokus ke gambar (bukan teks berita panjang)
-_PROMPT_MAXLEN = 320
+# batas panjang prompt akhir (deskripsi detail kejadian + gaya animasi 2D)
+_PROMPT_MAXLEN = 480
 
 
 def _refine_prompt(cfg: dict, scene_text: str) -> str | None:
     """Ringkas teks adegan menjadi deskripsi visual singkat memakai Ollama."""
     sc = cfg["script"]
     system = (
-        "Turn a news sentence into a SHORT visual scene description for an image "
-        "generator. Describe ONLY what is literally seen (place, people, action, "
-        "time of day). No names of real people, no text/logos, no captions. "
-        "One concise phrase, max 25 words. Output ONLY the description."
+        "You turn a news sentence into a VIVID, DETAILED visual scene description "
+        "for an image generator. Capture the SPECIFICS of THIS event so the image "
+        "matches what is being discussed: the kind of location/setting, key objects "
+        "and vehicles, the number and role of people (e.g. firefighters, soldiers, "
+        "crowd, officials), their actions, weather, time of day, and overall mood. "
+        "Use only generic descriptors for people (their role/clothing), NEVER the "
+        "names or faces of real, identifiable individuals; no on-screen text, logos, "
+        "or captions. One rich phrase, 25-40 words. Output ONLY the description."
     )
     payload = {
         "model": sc["model"],
@@ -50,15 +54,20 @@ def _refine_prompt(cfg: dict, scene_text: str) -> str | None:
         return None
 
 
-def build_prompt(cfg: dict, scene_text: str) -> str:
-    """Gabung deskripsi visual + gaya menjadi prompt akhir."""
+def build_prompt(cfg: dict, scene_text: str, style: str | None = None) -> str:
+    """Gabung deskripsi visual + gaya menjadi prompt akhir.
+
+    style: bila diberikan (mis. dipilih per video dari daftar `styles`), dipakai
+    menggantikan cfg.ai_image.style. Bila None -> jatuh ke konfigurasi.
+    """
     ai = cfg.get("ai_image", {})
     base = None
     if ai.get("refine_prompt", True) and cfg["script"].get("use_ollama"):
         base = _refine_prompt(cfg, scene_text)
     if not base:
         base = scene_text.strip()
-    style = ai.get("style", "cinematic, photorealistic")
+    if not style:
+        style = ai.get("style", "cinematic, photorealistic")
     prompt = f"{base}. {style}"
     return prompt[:_PROMPT_MAXLEN]
 
@@ -80,9 +89,13 @@ def _is_valid_image(data: bytes, min_std: float = 4.0) -> bool:
 
 
 def generate_image(
-    cfg: dict, scene_text: str, out_path: Path, width: int, height: int
+    cfg: dict, scene_text: str, out_path: Path, width: int, height: int,
+    style: str | None = None,
 ) -> Path | None:
-    """Buat 1 gambar AI dari teks adegan. Sukses -> path, gagal -> None."""
+    """Buat 1 gambar AI dari teks adegan. Sukses -> path, gagal -> None.
+
+    style: override gaya (dipilih per video oleh pemanggil); None -> dari config.
+    """
     ai = cfg.get("ai_image", {})
     if not ai.get("enabled", False):
         return None
@@ -90,14 +103,34 @@ def generate_image(
         log.warning("Provider gambar '%s' belum didukung. Lewati.", ai.get("provider"))
         return None
 
-    prompt = build_prompt(cfg, scene_text)
-    # seed deterministik dari prompt -> hasil stabil & idempoten saat retry
-    seed = int(hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:8], 16)
-    url = (
-        f"https://image.pollinations.ai/prompt/{quote(prompt)}"
-        f"?width={width}&height={height}&model={ai.get('model', 'flux')}"
-        f"&nologo=true&seed={seed}"
-    )
+    prompt = build_prompt(cfg, scene_text, style=style)
+    # seed dasar deterministik dari prompt -> percobaan ke-1 idempoten saat re-run.
+    base_seed = int(hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:8], 16)
+    # NOTE: param 'model' kini praktis diabaikan Pollinations (selalu melayani
+    # 'sana'); tetap dikirim untuk kompatibilitas bila mereka memulihkannya.
+    # NOTE: negative_prompt nyaris tak berpengaruh pada model 'sana'; pengungkit
+    # mutu nyata adalah SEED -> tiap retry reroll seed agar komposisi berbeda
+    # (mengatasi figur tak komplit/anatomi rusak pada seed yang kebetulan buruk).
+
+    def _build_url(seed: int) -> str:
+        params = [
+            f"width={width}",
+            f"height={height}",
+            f"model={ai.get('model', 'flux')}",
+            "nologo=true",
+            f"seed={seed}",
+        ]
+        if ai.get("enhance", True):
+            params.append("enhance=true")  # Pollinations sempurnakan prompt otomatis
+        quality = ai.get("quality")
+        if quality:
+            params.append(f"quality={quote(str(quality))}")  # high -> tajam/detail
+        neg = ai.get("negative_prompt")
+        if neg:
+            params.append(f"negative_prompt={quote(str(neg))}")  # buang artefak
+        if ai.get("private", True):
+            params.append("nofeed=true")  # gambar berita tidak masuk feed publik
+        return "https://image.pollinations.ai/prompt/" + quote(prompt) + "?" + "&".join(params)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,8 +138,11 @@ def generate_image(
     retries = int(ai.get("retries", 2))
 
     for attempt in range(1, retries + 1):
+        # percobaan 1 pakai seed dasar; berikutnya reroll seed (offset prima)
+        seed = base_seed + (attempt - 1) * 100003
+        url = _build_url(seed)
         try:
-            log.info("Gambar AI [%d/%d]: %s", attempt, retries, prompt[:70])
+            log.info("Gambar AI [%d/%d] seed=%d: %s", attempt, retries, seed, prompt[:60])
             r = requests.get(url, timeout=timeout)
             r.raise_for_status()
             if _is_valid_image(r.content):

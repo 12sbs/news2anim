@@ -520,16 +520,41 @@ def _dequeue_pending(cfg: dict, slug: str) -> None:
 
 
 def _retry_pending_uploads(cfg: dict, allow_upload: bool) -> None:
-    """Coba upload ulang video yang tertunda akibat limit. Dipanggil di awal
-    siklus agar backlog diprioritaskan sebelum produksi video baru."""
+    """Upload BERTAHAP video tertunda di jam tayang prime (drip-feed).
+
+    Berbeda dari versi lama yang memborong seluruh antrean sekaligus: di sini
+    tiap slot prime hanya mengunggah `upload_schedule.max_per_slot` video
+    (default 1) agar aktivitas channel terlihat natural & tiap video dapat
+    impresi maksimal. Slot prime dipilih adaptif dari negara penonton (lihat
+    schedule.py). Di luar slot / belum lewat jeda minimum -> tidak upload.
+    """
+    import schedule
+
     if not (allow_upload and cfg["youtube"].get("enabled")):
         return
     pending = load_state(cfg).get("pending_uploads", [])
     if not pending:
         return
-    log.info("Antrean upload tertunda: %d video -> coba lagi.", len(pending))
+
+    # Gerbang jadwal: hanya unggah saat slot prime jatuh tempo.
+    ok, reason = schedule.due_slot(cfg)
+    if not ok:
+        log.info("Antrean %d video tertunda -> %s.", len(pending), reason)
+        return
+
+    sched = cfg.get("upload_schedule", {})
+    max_per_slot = int(sched.get("max_per_slot", 1))
+    done, total = schedule.slot_progress(cfg)
+    log.info(
+        "Slot prime jatuh tempo (%s) -> upload hingga %d video (tahap %d/%d).",
+        reason, max_per_slot, done + 1, total,
+    )
     base = resolve("output")
+    uploaded = 0
     for item in list(pending):
+        if uploaded >= max_per_slot:
+            log.info("Kuota slot ini (%d) terpenuhi -> sisa antrean nanti.", max_per_slot)
+            break
         slug = item.get("slug", "")
         workdir = base / slug
         final = workdir / "final.mp4"
@@ -556,8 +581,11 @@ def _retry_pending_uploads(cfg: dict, allow_upload: bool) -> None:
             )
         if vid_id:
             _dequeue_pending(cfg, slug)
+            schedule.mark_slot_used(cfg)  # catat slot terpakai + jeda mulai dihitung
+            uploaded += 1
+            done, total = schedule.slot_progress(cfg)
             _notify_upload_ok(cfg, meta["title"], vid_id, item.get("n_sources", 1), final)
-            log.info("Pending '%s' berhasil diupload.", slug)
+            log.info("Pending '%s' terupload (tahap %d/%d hari ini).", slug, done, total)
         elif status == "retry":
             # Limit masih aktif -> percuma lanjut item lain siklus ini. Berhenti,
             # sisa antrean tetap tersimpan untuk siklus berikutnya.

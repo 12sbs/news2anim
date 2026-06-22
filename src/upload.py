@@ -16,11 +16,16 @@ from utils import load_config, log, resolve
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 # youtube.upload = unggah video; youtube = set thumbnail kustom (butuh re-auth sekali).
-# Saat re-auth (flow pertama) minta KEDUANYA agar thumbnail ikut aktif.
+# yt-analytics.readonly = baca komposisi negara penonton (penjadwal upload adaptif).
+# Saat re-auth (flow pertama) minta SEMUA agar thumbnail + jadwal adaptif aktif.
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
+
+# Scope yang WAJIB ada di token agar mode adaptif (Analytics) bisa jalan.
+ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
 
 
 def _yt_safe(text: str) -> str:
@@ -79,6 +84,41 @@ def _get_service(cfg: dict):
         token_path.write_text(creds.to_json(), encoding="utf-8")
 
     return build("youtube", "v3", credentials=creds)
+
+
+def get_analytics_service(cfg: dict):
+    """Service YouTube Analytics utk penjadwal adaptif. None bila tak bisa.
+
+    Aman dipanggil kapan saja: jika token belum punya scope Analytics (belum
+    re-auth), kembalikan None TANPA error -> penjadwal jatuh ke preset. Tidak
+    pernah memicu re-auth interaktif (service 24/7 tak boleh blok).
+    """
+    yt = cfg["youtube"]
+    token_path = resolve(yt["token"])
+    if not token_path.exists():
+        return None
+    scopes = _token_scopes(token_path)
+    if ANALYTICS_SCOPE not in scopes:
+        log.info(
+            "[jadwal] token tanpa scope Analytics -> mode adaptif nonaktif "
+            "(jalankan src/authorize.py untuk mengaktifkan)."
+        )
+        return None
+    try:
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+
+        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+        if not creds.valid and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            token_path.write_text(creds.to_json(), encoding="utf-8")
+        if not creds.valid:
+            return None
+        return build("youtubeAnalytics", "v2", credentials=creds)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[jadwal] gagal siapkan Analytics (%s) -> preset.", e)
+        return None
 
 
 def upload_video(

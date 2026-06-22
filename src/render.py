@@ -285,8 +285,14 @@ def render_scene(cfg: dict, scene: dict, idx: int, workdir: Path,
         try:
             from ai_image import generate_image
 
+            # variasi gaya antar video: pilih dari daftar styles via hash headline
+            # (stabil per video -> 1 video 1 gaya, bergantian antar video).
+            ai = cfg.get("ai_image", {})
+            styles = [s for s in (ai.get("styles") or []) if s] or [ai.get("style")]
+            chosen_style = styles[_seed_int(headline) % len(styles)]
             ai_path = generate_image(
-                cfg, scene["text"], workdir / f"ai_{idx:02d}.png", W, H
+                cfg, scene["text"], workdir / f"ai_{idx:02d}.png", W, H,
+                style=chosen_style,
             )
             if ai_path:
                 bg_path = ai_path

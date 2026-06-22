@@ -120,10 +120,21 @@ video:
 ai_image:
   enabled: true
   provider: pollinations      # gratis, tanpa API key
-  model: flux                 # model Pollinations (flux | turbo)
-  # gaya visual ditempel ke prompt tiap adegan
-  style: "cinematic news b-roll, photorealistic, dramatic lighting, high detail, 16:9"
-  refine_prompt: true         # pakai Ollama untuk meringkas teks adegan -> prompt visual
+  model: flux                 # CATATAN: Pollinations kini selalu melayani 'sana';
+                              # param model praktis diabaikan, dikirim utk kompat.
+  # gaya visual ditempel ke prompt tiap adegan -> animasi 2D
+  # 'styles' = daftar gaya; dipilih per VIDEO via hash headline (1 video 1 gaya,
+  # bergantian antar video utk variasi). 'style' di bawah = fallback bila kosong.
+  styles:
+    - "2D animation style, anime film background art, detailed cel shading, dramatic cinematic lighting, studio quality, rich detail, 16:9"   # A - anime film
+    - "2D graphic novel illustration, inked outlines, flat cel coloring, dramatic shadows, detailed background, 16:9"                          # C - graphic novel
+  style: "2D animation style, anime film background art, detailed cel shading, dramatic cinematic lighting, studio quality, rich detail, 16:9"
+  refine_prompt: false        # teks adegan mentah + enhance -> paling akurat ke kejadian (gambar E); true = refine Ollama (gambar F)
+  quality: high               # medium(default API)|high|low -> high = lebih tajam & detail
+  enhance: true               # Pollinations menyempurnakan prompt otomatis
+  private: true               # nofeed=true: gambar berita tidak masuk feed publik
+  # buang artefak + foto-realisme + figur tak komplit (badan hilang / baju kosong)
+  negative_prompt: "photorealistic, photograph, realistic photo, 3d render, cgi, text, watermark, logo, caption, subtitles, signature, blurry, low quality, distorted, deformed, disfigured, extra fingers, extra limbs, bad anatomy, empty clothes, hollow clothing, floating clothes, headless, faceless, missing head, missing body, bodiless, incomplete figures, malformed limbs, mangled people, mutilated"
   timeout_sec: 60
   retries: 2                  # percobaan unduh per gambar
 
@@ -171,6 +182,36 @@ youtube:
   tags: [world news, international news, animated news, breaking news, explainer]
   title_prefix: ""
   description_footer: "\n\nAnimated news explainer. Source credited above. For educational purposes."
+
+# ---- Jadwal upload bertahap (drip) di jam tayang prime ----
+# Saat kuota YouTube pulih, video tertunda TIDAK diunggah sekaligus. Diunggah
+# bertahap (1 video per slot) di jam ramai-menonton agar channel terlihat
+# natural & tiap video dapat impresi maksimal.
+#
+# Mode ADAPTIF: jam slot dipilih dari KOMPOSISI NEGARA penonton channel (YouTube
+# Analytics), DISARING ke negara berbahasa-Inggris sehari-hari (english_countries)
+# -> tiap negara dipetakan ke jam prime lokalnya -> dikonversi ke UTC -> 11 jam
+# berbobot tertinggi dipakai. Bila Analytics belum tersedia (scope belum diberikan
+# / data channel belum cukup) -> jatuh ke preset_utc_hours.
+#
+# preset_utc_hours di bawah = HASIL ANALISA jam prime Anglosphere inti (AS, UK,
+# Kanada, Australia, Irlandia, Selandia Baru) dibobot populasi & dipecah per zona
+# waktu. Audiens menumpuk 18:00-04:00 UTC (puncak 23:00-02:00 UTC = prime AS).
+# 11 jam teratas membentuk blok berturut -> jeda dirapatkan ke 1 jam agar semua
+# 11 tahap muat di jendela emas ini tiap hari.
+upload_schedule:
+  enabled: true
+  slots_per_day: 11           # jumlah tahap upload per hari
+  min_gap_hours: 1.0          # jeda minimum antar-upload (1 jam: 11 tahap muat di jendela prime)
+  max_per_slot: 1             # video diunggah per slot (1 = paling natural)
+  adaptive: true              # true = pilih jam dari Analytics; false = pakai preset
+  analytics_lookback_days: 90 # rentang data Analytics utk menimbang negara
+  # negara yang bahasa SEHARI-HARI-nya Inggris (saring audiens adaptif ke ini saja)
+  english_countries: [US, GB, CA, AU, IE, NZ]
+  # jam "ramai menonton" di waktu LOKAL tiap negara (sore->malam puncak)
+  prime_local_hours: [18, 19, 20, 21, 22]
+  # preset jam UTC (fallback) — hasil analisa Anglosphere inti, jendela prime 18:00-04:00 UTC
+  preset_utc_hours: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4]
 
 # ---- Clustering peristiwa (gabung banyak sumber jadi 1 video) ----
 cluster:
